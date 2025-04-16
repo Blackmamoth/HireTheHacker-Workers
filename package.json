@@ -1,0 +1,37 @@
+{
+  "name": "vercel-ai-sdk",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "start:extractor": "ts-node src/extractResumeData.ts",
+    "start:screener": "ts-node src/screenResumes.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.11.13",
+    "drizzle-kit": "^0.31.0",
+    "nodemon": "^3.1.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^1.1.5",
+    "@aws-sdk/client-s3": "^3.787.0",
+    "@types/node": "^22.12.0",
+    "ai": "^4.1.11",
+    "bullmq": "^5.49.0",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.42.0",
+    "ioredis": "^5.6.1",
+    "mammoth": "^1.9.0",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.14.1",
+    "ts-node": "^10.9.2",
+    "zod": "^3.24.1"
+  }
+}
