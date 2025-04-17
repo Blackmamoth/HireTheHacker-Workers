@@ -7,11 +7,18 @@ import "dotenv/config";
 import { Readable } from "stream";
 import pdfParse from "pdf-parse";
 import { openai } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+import { generateObject, embed } from "ai";
 import { z } from "zod";
 import { db } from "./db";
-import { candidate } from "./schema";
-import { InferInsertModel } from "drizzle-orm";
+import { candidate, jobDescription, screening } from "./schema";
+import {
+  cosineDistance,
+  desc,
+  eq,
+  InferInsertModel,
+  like,
+  sql,
+} from "drizzle-orm";
 import path from "path";
 import mammoth from "mammoth";
 
@@ -97,7 +104,9 @@ const resumeSchema = z.object({
     .describe(
       "List of tools, technologies, frameworks, or programming languages listed by the candidate",
     ),
-
+  skills: z
+    .string()
+    .describe("Text describing the skills the candidate possesses"),
   resumeUrl: z.string().describe("URL of the resume uploaded by the candidate"),
 
   resumeHash: z.string().describe("Hash of the resume content"),
@@ -106,6 +115,8 @@ const resumeSchema = z.object({
 type ResumeData = z.infer<typeof resumeSchema>;
 
 type Candidate = InferInsertModel<typeof candidate>;
+
+type Screening = InferInsertModel<typeof screening>;
 
 const Bucket = process.env.AWS_S3_BUCKET_NAME!;
 
@@ -152,63 +163,113 @@ const getRawText = async (
   }
 };
 
+export const generateEmbeddings = async (text: string) => {
+  const model = openai.embedding("text-embedding-3-small");
+
+  const clean = text.replace(/\n/g, " ");
+  const { embedding } = await embed({ model, value: clean });
+  return embedding;
+};
+
+const getJD = async (jobId: string) => {
+  const jd = await db
+    .select()
+    .from(jobDescription)
+    .where(eq(jobDescription.id, jobId));
+
+  if (!jd || jd.length === 0) {
+    return null;
+  }
+  return jd[0];
+};
+
 export const processFilesWithJobId = async (jobId: string) => {
-  try {
-    const prefix = `${jobId}-`;
+  const jd = await getJD(jobId);
+  if (!jd) {
+    throw new Error("Job description does not exist");
+  }
+  const prefix = `${jobId}-`;
 
-    const { Contents } = await s3Client.send(
-      new ListObjectsV2Command({
-        Bucket,
-        Prefix: prefix,
-      }),
-    );
+  const { Contents } = await s3Client.send(
+    new ListObjectsV2Command({
+      Bucket,
+      Prefix: prefix,
+    }),
+  );
 
-    if (!Contents || Contents.length === 0) {
-      return [];
-    }
-
-    const candidates: Candidate[] = [];
-
-    await Promise.all(
-      Contents.map(async (file) => {
-        const getCommand = new GetObjectCommand({
-          Bucket,
-          Key: file.Key,
-        });
-
-        const response = await s3Client.send(getCommand);
-        const bodyStream = response.Body as Readable;
-        const structuredData = await streamToStructuredData(
-          bodyStream,
-          file.Key!,
-        );
-
-        candidates.push({
-          resumeHash: "",
-          resumeUrl: file.Key!,
-          contactDetails: structuredData.contactDetails,
-          education: structuredData.education,
-          exceptionalAbility: structuredData.exceptionalAbility,
-          experience: structuredData.experience,
-          name: structuredData.name,
-          professionalSummary: structuredData.professionalSummary,
-          professionalTitle: structuredData.professionalTitle,
-          projectLinks: structuredData.projectLinks,
-          socialLinks: structuredData.socialLinks,
-          techStack: structuredData.techStack,
-          totalExperience: structuredData.totalExperience,
-        });
-      }),
-    );
-
-    const insertedId = await db
-      .insert(candidate)
-      .values(candidates)
-      .returning({ insertedId: candidate.id });
-
-    return insertedId;
-  } catch (error) {
-    console.log(error);
+  if (!Contents || Contents.length === 0) {
     return [];
   }
+
+  const candidates: Candidate[] = [];
+
+  await Promise.all(
+    Contents.map(async (file) => {
+      const getCommand = new GetObjectCommand({
+        Bucket,
+        Key: file.Key,
+      });
+
+      const response = await s3Client.send(getCommand);
+      const bodyStream = response.Body as Readable;
+      const structuredData = await streamToStructuredData(
+        bodyStream,
+        file.Key!,
+      );
+
+      const searchContent = `${structuredData.experience + structuredData.skills + structuredData.techStack.toString()}`;
+
+      candidates.push({
+        resumeHash: "",
+        resumeUrl: file.Key!,
+        contactDetails: structuredData.contactDetails,
+        education: structuredData.education,
+        exceptionalAbility: structuredData.exceptionalAbility,
+        experience: structuredData.experience,
+        name: structuredData.name,
+        professionalSummary: structuredData.professionalSummary,
+        professionalTitle: structuredData.professionalTitle,
+        projectLinks: structuredData.projectLinks,
+        socialLinks: structuredData.socialLinks,
+        techStack: structuredData.techStack,
+        totalExperience: structuredData.totalExperience,
+        embeddings: await generateEmbeddings(searchContent),
+      });
+    }),
+  );
+
+  const insertedId = await db
+    .insert(candidate)
+    .values(candidates)
+    .returning({ insertedId: candidate.id });
+
+  return insertedId;
+};
+
+export const screenResumes = async (jobId: string) => {
+  const jd = await getJD(jobId);
+  if (!jd) {
+    throw new Error("Job description does not exist");
+  }
+
+  const jEmb = await generateEmbeddings(jd.description);
+
+  const similarity = sql<number>`1 - (${cosineDistance(candidate.embeddings, jEmb)})`;
+
+  const potentialCandidates = await db
+    .select()
+    .from(candidate)
+    .where(like(candidate.resumeUrl, `${jobId}-%`))
+    .orderBy(desc(similarity));
+
+  const screenings: Screening[] = potentialCandidates.map(
+    (candidate, index) => ({
+      candidate: candidate.id,
+      jd: jobId,
+      isShortlisted: false,
+      rank: index + 1,
+    }),
+  );
+
+  await db.insert(screening).values(screenings);
 };

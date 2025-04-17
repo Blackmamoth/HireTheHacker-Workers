@@ -1,12 +1,16 @@
 import "dotenv/config";
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
-import { processFilesWithJobId } from "./helpers";
+import { processFilesWithJobId, screenResumes } from "./helpers";
 
 const connection = new Redis({
   host: process.env.REDIS_HOST!,
   password: process.env.REDIS_PASS!,
   maxRetriesPerRequest: null,
+});
+
+export const resumeQueue = new Queue("resume-processing", {
+  connection,
 });
 
 const worker = new Worker(
@@ -15,6 +19,10 @@ const worker = new Worker(
     if (job.name == "process-resume") {
       const { jobId } = job.data;
       await processFilesWithJobId(jobId);
+      await resumeQueue.add("screen-resumes", { jobId });
+    } else if (job.name == "screen-resumes") {
+      const { jobId } = job.data;
+      await screenResumes(jobId);
     }
   },
   { connection },

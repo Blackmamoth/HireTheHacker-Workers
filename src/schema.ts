@@ -8,6 +8,7 @@ import {
   uuid,
   jsonb,
   doublePrecision,
+  vector,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
@@ -49,9 +50,11 @@ export const candidate = pgTable("candidate", {
   education: text("education"),
   totalExperience: doublePrecision("total_experience"),
   exceptionalAbility: text("exceptional_ability"),
+  skills: text("skills"),
   techStack: text("tech_stack").array(),
   resumeUrl: text("resume_url").notNull(),
   resumeHash: text("resume_hash").notNull(),
+  embeddings: vector("embeddings", { dimensions: 1536 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
