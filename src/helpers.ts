@@ -21,6 +21,7 @@ import {
 } from "drizzle-orm";
 import path from "path";
 import mammoth from "mammoth";
+import { emitScreeningComplete } from "./socket";
 
 const s3Client = new S3Client({
   region: "ap-south-1",
@@ -151,14 +152,14 @@ const getStructuredResumeData = async (resumeText: string) => {
 
 const getRawText = async (
   fileName: string,
-  fileBuffer: Buffer<ArrayBuffer>,
+  fileBuffer: Buffer,
 ) => {
   const ext = path.extname(fileName);
   if (ext.includes("pdf")) {
     const data = await pdfParse(fileBuffer);
     return data.text;
   } else {
-    const data = await mammoth.extractRawText({ arrayBuffer: fileBuffer });
+    const data = await mammoth.extractRawText({ buffer: fileBuffer });
     return data.value;
   }
 };
@@ -272,4 +273,7 @@ export const screenResumes = async (jobId: string) => {
   );
 
   await db.insert(screening).values(screenings);
+  
+  // Emit socket event to notify frontend that screening is complete
+  emitScreeningComplete(jobId);
 };
