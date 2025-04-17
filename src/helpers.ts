@@ -159,8 +159,8 @@ const getRawText = async (
     const data = await pdfParse(fileBuffer);
     return data.text;
   } else {
-    const data = await mammoth.extractRawText({ buffer: fileBuffer });
-    return data.value;
+    const result = await mammoth.extractRawText({ arrayBuffer: fileBuffer });
+    return result.value;
   }
 };
 

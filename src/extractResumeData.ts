@@ -2,6 +2,7 @@ import "dotenv/config";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { processFilesWithJobId, screenResumes } from "./helpers";
+import { emitScreeningComplete } from "./socket";
 
 const connection = new Redis({
   host: process.env.REDIS_HOST!,
@@ -30,6 +31,7 @@ const worker = new Worker(
 
 worker.on("completed", (job) => {
   console.log("Completed", job.id);
+  emitScreeningComplete(job?.data.jobId);
 });
 
 worker.on("failed", (job) => {
